@@ -1,0 +1,3 @@
+metric,point_estimate,row_bootstrap_lower_95,row_bootstrap_upper_95,company_clustered_lower_95,company_clustered_upper_95
+ROC-AUC,0.6538181818181817,0.514,0.786,0.44493882115225203,0.8437520222174288
+PR-AUC,0.4837893750079343,0.318,0.697,0.2345930510617517,0.7209829450237233

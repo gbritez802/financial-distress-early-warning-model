@@ -1,0 +1,55 @@
+# Python virtual environment
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment variables / credentials
+.env
+*.env
+
+# R / RStudio local files
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# IDE files
+.vscode/
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# PostgreSQL / database credentials
+pgpass.conf
+.pgpass
+
+# Temporary files
+*.tmp
+*.log
+
+# Model binaries
+*.pkl
+*.joblib
+# Large raw SEC downloads
+01_RAW_DATA/sec_financials/
+01_RAW_DATA/sec_historical/
+
+# Local R project file
+Financial Distress Project.Rproj
+
+# Old model binaries
+05_OUTPUTS/*.joblib
+# Intermediate / development datasets
+02_CLEAN_DATA/financial_features_v1.csv
+02_CLEAN_DATA/financial_features_v2.csv
+02_CLEAN_DATA/management_event_classification.csv
+02_CLEAN_DATA/starter_20_fundamentals.csv
+02_CLEAN_DATA/starter_company_financials.csv
+02_CLEAN_DATA/structured_executive_departures_v3.csv
+02_CLEAN_DATA/test_company_financials.csv
