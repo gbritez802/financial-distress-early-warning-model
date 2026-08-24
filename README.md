@@ -1,136 +1,91 @@
 # Financial Distress Early-Warning Model
 
-## Predicting Future Market Drawdowns Using Financial Fundamentals and SEC 8-K Disclosures
+A multi-source machine-learning project that combines **SEC financial statements, SEC 8-K disclosures, historical market data, SQL, R, and Python** to estimate the risk of a major future equity drawdown.
 
-This project develops a forward-looking machine learning framework designed to identify elevated risk of significant future stock-price drawdowns using publicly available corporate information.
+> **Final frozen 2024 holdout:** ROC-AUC **0.654** · PR-AUC **0.484** · Recall **60%** · F1 **0.500**
 
-The model combines quarterly financial statement fundamentals, year-over-year financial deterioration, SEC Form 8-K disclosure activity, and persistent deterioration signals to estimate whether a company will experience a significant market drawdown during the subsequent 12-month period.
+![ROC Curve](05_OUTPUTS/final_roc_curve.png)
 
-The objective is not to predict bankruptcy or accounting insolvency. Instead, the project treats a severe future equity drawdown as a market-based measure of corporate distress.
+## Project Overview
+
+The goal of this project is to answer a practical question:
+
+> **Can financial deterioration and corporate disclosure activity observable at the time of an SEC filing help identify companies at elevated risk of a major stock-price drawdown over the following year?**
+
+I built an end-to-end pipeline covering data collection, financial feature engineering, SEC filing analysis, PostgreSQL storage, machine-learning modeling, temporal validation, robustness testing, and visualization.
+
+### Final Dataset
+
+| Component | Result |
+|---|---:|
+| Companies | **20 U.S. public companies** |
+| Quarterly observations | **747** |
+| Final holdout period | **2024** |
+| Holdout observations | **80** |
+| Final model | **Class-balanced Random Forest** |
+| Distress definition | **≥30% forward peak-to-trough drawdown** |
+| Forecast horizon | **252 trading days** |
 
 ---
 
-## Research Question
+## Target Definition
 
-**Can financial deterioration and corporate disclosure activity observable at the time of a quarterly filing help identify companies at elevated risk of a significant stock-price drawdown over the following 12 months?**
+Rather than attempting to predict bankruptcy, the project defines **financial distress as severe future equity-market deterioration**.
 
-The project investigates three related questions:
+For each quarterly company observation:
 
-1. How much predictive information is contained in traditional financial fundamentals?
-2. Do SEC 8-K disclosures provide incremental information beyond financial statements?
-3. Does persistent deterioration across multiple quarters improve early-warning performance?
+1. Start on the first trading day on or after the SEC filing date.
+2. Observe the following **252 trading days**.
+3. Calculate the worst **peak-to-trough drawdown** during that forward window.
+4. Assign:
 
----
+```text
+distress_12m = 1
+```
 
-## Dataset
+when the future drawdown reaches **-30% or worse**.
 
-The final modeling dataset contains:
+A complete 252-trading-day forward window is required for the observation to receive a label.
 
-- **747 quarterly company observations**
-- **20 publicly traded U.S. companies**
-- Approximately **10 years of historical observations**
-- Quarterly financial statement information
-- SEC Form 8-K disclosure information
-- Market-based forward distress labels
-
-The company universe includes firms from multiple industries in order to expose the model to different financial structures and business models.
-
-Examples include Apple, Microsoft, Amazon, Alphabet, Meta Platforms, Exxon Mobil, Goldman Sachs, Coca-Cola, McDonald's, Nike, Disney, UnitedHealth Group, NVIDIA, Berkshire Hathaway, and others.
+> **Important:** This model predicts major market drawdown risk — not bankruptcy, insolvency, or default.
 
 ---
 
 ## Data Sources
 
-### SEC Financial Statement Data
+The project integrates three main sources of information.
 
-Financial statement information was collected from publicly available SEC filings and XBRL data.
+### 1. SEC Financial Statements
 
-The project uses accounting variables including:
+Financial statement data was collected from SEC filings and transformed into fundamental indicators including:
 
 - Revenue
-- Net income
 - Operating income
-- Total assets
+- Net income
+- Assets
+- Liabilities
 - Current assets
-- Total liabilities
 - Current liabilities
-- Cash and cash equivalents
+- Cash
 
-These raw variables were transformed into financial ratios, growth measures, and deterioration indicators.
-
-### SEC Form 8-K Filings
-
-Corporate event information was extracted from SEC Form 8-K filings.
-
-The project tracks events including:
-
-- Management changes
-- Restructuring activity
-- Material agreements
-- Acquisitions and dispositions
-- Overall 8-K filing activity
-
-Management-related filings were additionally analyzed at the filing-text level to distinguish potential CEO and CFO departures and appointments.
-
-### Market Data
-
-Historical market-price information was used to calculate forward stock-price drawdowns following each financial filing.
-
-The forward outcome window begins when the financial information becomes publicly observable and measures subsequent market performance over approximately one trading year.
-
----
-
-## Target Variable
-
-The target variable is a binary **12-month market distress indicator**.
-
-For each observation, the project measures the company's maximum subsequent stock-price drawdown during the forward 12-month window.
-
-Observations crossing the project's predetermined drawdown threshold are classified as:
-
-`distress_12m = 1`
-
-Observations that do not cross the threshold are classified as:
-
-`distress_12m = 0`
-
-This definition is intentionally market based.
-
-**The model does not predict bankruptcy, default, or accounting insolvency.**
-
-Instead, it attempts to identify financial and disclosure patterns associated with elevated risk of a substantial future equity drawdown.
-
----
-
-## Feature Engineering
-
-### Financial Fundamentals
-
-The model includes financial ratios such as:
+These were converted into features such as:
 
 - Current ratio
 - Liabilities-to-assets
 - Return on assets
 - Operating margin
 - Cash-to-assets
-
-### Financial Change Variables
-
-Year-over-year changes were calculated for:
-
 - Revenue growth
 - Net income growth
-- Operating margin
-- Leverage
-- Current ratio
-- Cash-to-assets
-- Return on assets
+- Year-over-year changes in liquidity
+- Year-over-year changes in leverage
+- Year-over-year changes in profitability
 
-These variables allow the model to distinguish between a company's financial level and the direction in which its fundamentals are moving.
+### 2. SEC Form 8-K Disclosures
 
-### SEC 8-K Event Features
+Corporate event information was extracted from SEC 8-K filings.
 
-Rolling 12-month event variables include:
+Rolling event variables include:
 
 - `management_change_12m`
 - `restructuring_12m`
@@ -138,451 +93,512 @@ Rolling 12-month event variables include:
 - `acquisition_disposition_12m`
 - `total_8k_12m`
 
-This allows the model to incorporate corporate events occurring between quarterly financial reports.
+Management-related disclosures were additionally reviewed at the text level to distinguish executive departures, appointments, and potentially disruptive management events.
 
-### Persistent Deterioration
+### 3. Historical Market Prices
 
-Single-quarter deterioration can be noisy.
+Adjusted historical stock prices were used to construct the forward 12-month drawdown target.
 
-The project therefore engineered multi-quarter indicators designed to identify persistent weakening.
+---
 
-The final specification includes:
+## Project Pipeline
+
+```text
+SEC Financial Statements
+          +
+SEC 8-K Disclosures
+          +
+Historical Market Prices
+          |
+          v
+    Data Cleaning
+          |
+          v
+   PostgreSQL / SQL
+          |
+          v
+ Financial Feature Engineering
+          +
+ Event Feature Engineering
+          |
+          v
+ Multi-Quarter Deterioration Signals
+          |
+          v
+ Chronological Development Split
+          |
+          v
+     Purged Validation
+          |
+          v
+ Random Forest Model Selection
+          |
+          v
+   Frozen Model Specification
+          |
+          v
+      2024 Holdout
+       /    |    \
+      v     v     v
+ Bootstrap Error  Cross-Company
+ Analysis Analysis Validation
+```
+
+---
+
+## Feature Engineering
+
+The model combines four types of predictors:
+
+**Financial levels**
+
+Examples include cash-to-assets, liabilities-to-assets, current ratio, operating margin, and return on assets.
+
+**Financial changes**
+
+Year-over-year changes capture deterioration or improvement rather than simply the current financial level.
+
+**Corporate events**
+
+SEC 8-K activity captures potentially meaningful changes that may not yet be fully reflected in accounting ratios.
+
+**Persistent deterioration**
+
+Multi-quarter streak variables were designed to detect deterioration that persists rather than temporary one-quarter noise.
+
+The final candidate model retained:
+
+```text
+cash_deteriorating_3q
+leverage_rising_3q
+```
+
+### Quarter-Sequence Validation
+
+Because deterioration streaks only make sense when observations represent consecutive quarters, fiscal-period continuity was audited.
+
+Results:
+
+- **725** valid previous-quarter gaps
+- **705** valid three-quarter sequences
+- **94.38%** of observations supported valid 3-quarter sequences
+
+Only legitimate sequences were used to construct streak signals.
+
+---
+
+## Model Development
+
+Several model configurations were evaluated during development, including:
+
+- Fundamental financial features
+- Fundamental + SEC event features
+- Fundamental + event + deterioration features
+- Targeted deterioration-feature ablations
+
+The final candidate was selected using **purged chronological validation**, rather than the final test set.
+
+The winning validation specification added:
+
+```text
+cash_deteriorating_3q
+leverage_rising_3q
+```
+
+to the fundamentals + events baseline.
+
+The specification was then **frozen before evaluating the 2024 holdout**.
+
+---
+
+# Final Results
+
+## Frozen 2024 Holdout
+
+| Metric | Result |
+|---|---:|
+| **ROC-AUC** | **0.654** |
+| **PR-AUC** | **0.484** |
+| Accuracy | 0.625 |
+| Precision | 0.429 |
+| **Recall** | **0.600** |
+| F1 | 0.500 |
+
+The holdout contained **80 observations** from 20 companies.
+
+### Confusion Matrix
+
+| | Predicted No Distress | Predicted Distress |
+|---|---:|---:|
+| **Actual No Distress** | 35 | 20 |
+| **Actual Distress** | 10 | 15 |
+
+The model identified **15 of 25 actual distress observations**, corresponding to **60% recall**.
+
+![Confusion Matrix](05_OUTPUTS/final_confusion_matrix.png)
+
+---
+
+## ROC Performance
+
+![ROC Curve](05_OUTPUTS/final_roc_curve.png)
+
+The final model achieved:
+
+**ROC-AUC = 0.654**
+
+This indicates moderate ability to rank higher-risk observations above lower-risk observations in the unseen 2024 holdout.
+
+---
+
+## Precision-Recall Performance
+
+![Precision Recall Curve](05_OUTPUTS/final_pr_curve.png)
+
+The final model achieved:
+
+**PR-AUC = 0.484**
+
+Because distress observations represent the minority class, precision-recall performance provides an important complement to ROC-AUC.
+
+---
+
+# What Drove the Model?
+
+## Feature Importance
+
+![Feature Importance](05_OUTPUTS/final_feature_importance.png)
+
+The strongest model inputs were primarily measures of financial condition and deterioration.
+
+Leading features included:
+
+1. Cash-to-assets change
+2. Liabilities-to-assets
+3. Return on assets
+4. Cash-to-assets
+5. Revenue growth
+6. Total 8-K activity
+7. Current-ratio change
+8. Current ratio
+9. Net-income growth
+10. Leverage change
+
+The final multi-quarter deterioration signals also contributed:
 
 - `cash_deteriorating_3q`
 - `leverage_rising_3q`
 
-These indicators identify financial deterioration persisting across three consecutive quarterly observations.
+> Random Forest feature importance measures predictive contribution within the model. It should not be interpreted as evidence of causality.
 
 ---
 
-## Quarter-Sequence Validation
+# Persistent Financial Deterioration
 
-Because deterioration streaks depend on consecutive observations, fiscal-period continuity was explicitly validated.
+One of the most interesting findings was the relationship between **persistent cash deterioration** and future distress.
 
-Of the 747 observations:
+### Three-Quarter Cash Deterioration
 
-- **725** had a valid previous-quarter gap
-- **705** had a valid three-quarter sequence
-- **94.38%** of the dataset supported valid three-quarter sequences
-
-Only two irregular fiscal-period gaps were identified in the underlying quarterly history.
-
-This validation was performed before using multi-quarter deterioration variables in the final model.
-
----
-
-## Modeling Approach
-
-The final model uses a **Random Forest classifier**.
-
-The pipeline includes:
-
-1. Median imputation for missing feature values
-2. Class-balanced Random Forest classification
-3. Fixed model hyperparameters
-4. A probability threshold of **0.50** for binary classification
-
-The final feature specification was selected during model development and then frozen before final holdout evaluation.
-
----
-
-## Temporal Validation
-
-Financial prediction creates a major risk of look-ahead bias.
-
-The project therefore uses chronological model development rather than randomly splitting quarterly observations.
-
-Training, validation, and final testing were separated through time.
-
-Observations whose forward outcome windows could overlap later evaluation periods were purged where appropriate during model development.
-
-The final evaluation uses **2024 as a frozen temporal holdout**.
-
-Once the final 2024 results were inspected, the model specification was not subsequently altered based on holdout performance.
-
----
-
-# Final 2024 Holdout Results
-
-The frozen final model produced:
-
-| Metric | Result |
+| Condition | Future Distress Rate |
 |---|---:|
-| ROC-AUC | **0.654** |
-| PR-AUC | **0.484** |
-| Accuracy | **0.625** |
-| Precision | **0.429** |
-| Recall | **0.600** |
-| F1 Score | **0.500** |
+| No 3Q cash deterioration | **20.6%** |
+| 3Q cash deterioration | **37.4%** |
 
-The 2024 holdout contained **80 observations**.
+The observed distress rate was therefore substantially higher following persistent cash deterioration.
 
-The confusion matrix was:
+### Three-Quarter Rising Leverage
 
-| | Predicted No Distress | Predicted Distress |
-|---|---:|---:|
-| Actual No Distress | 35 | 20 |
-| Actual Distress | 10 | 15 |
+| Condition | Future Distress Rate |
+|---|---:|
+| No 3Q leverage increase | **22.3%** |
+| 3Q leverage increase | **28.5%** |
 
-The model therefore identified **15 of 25 distress observations**, corresponding to **60% recall** at the frozen 0.50 classification threshold.
+Persistent leverage growth also corresponded with higher subsequent distress rates.
+
+These results support the idea that **the direction and persistence of financial changes can contain information beyond static financial ratios**.
 
 ---
 
-## ROC Curve
+# SEC 8-K Findings
 
-![2024 Holdout ROC Curve](05_OUTPUTS/final_roc_curve.png)
+The project also tested whether corporate disclosure activity provides additional warning information.
 
-ROC-AUC measures the model's ability to rank distress observations above non-distress observations across classification thresholds.
+One important result was that **8-K filing volume by itself was not a simple distress indicator**.
 
-The final holdout ROC-AUC was **0.654**.
+Some event categories — including restructuring and material agreements — showed higher raw distress rates, but event-level statistical estimates were uncertain.
 
----
+This suggests that:
 
-## Precision-Recall Curve
+> **The content and context of corporate disclosures may matter more than filing volume alone.**
 
-![2024 Holdout Precision-Recall Curve](05_OUTPUTS/final_pr_curve.png)
-
-Because distress observations are less common than non-distress observations, the Precision-Recall curve provides an important complementary measure of model performance.
-
-The final PR-AUC was **0.484**.
-
----
-
-## Feature Importance
-
-![Final Feature Importance](05_OUTPUTS/final_feature_importance.png)
-
-The strongest model features were primarily financial fundamentals and changes in financial condition.
-
-Leading features included:
-
-- Change in cash-to-assets
-- Cash-to-assets
-- Liabilities-to-assets
-- Return on assets
-- Revenue growth
-- Total 8-K activity
-- Change in current ratio
-- Current ratio
-- Change in leverage
-- Net income growth
-
-The results suggest that liquidity, leverage, profitability, and changes in financial condition contain more predictive information than any individual corporate event category.
-
-Importantly, feature importance in a Random Forest should be interpreted as model relevance rather than causal impact.
-
----
-
-## Persistent Financial Deterioration
-
-One of the clearest descriptive patterns in the dataset involved persistent cash deterioration.
-
-For observations without a three-quarter cash deterioration streak, the distress rate was approximately:
-
-**20.6%**
-
-For observations experiencing a three-quarter cash deterioration streak, the distress rate increased to approximately:
-
-**37.4%**
-
-Persistent leverage increases also corresponded with a higher distress rate:
-
-- No 3-quarter leverage increase: **22.3%**
-- 3-quarter leverage increase: **28.5%**
-
-These results motivated inclusion of cash and leverage persistence variables in the final model.
-
----
-
-## SEC 8-K Findings
-
-The project initially tested whether unusually high overall 8-K activity was itself a warning signal.
-
-Raw results did not support a simple interpretation that more 8-K filings necessarily imply greater distress risk.
-
-Instead, specific event categories displayed more economically intuitive relationships.
-
-For example, restructuring events showed higher raw distress rates, while management changes and material agreements also exhibited elevated rates relative to observations without those events.
-
-However, event-level regression estimates were statistically uncertain, with wide confidence intervals.
-
-This suggests that the **content and context of corporate disclosures matter more than filing volume alone**.
+`total_8k_12m` nevertheless appeared among the more important features in the final Random Forest model.
 
 ---
 
 # Uncertainty Analysis
 
-A standard row-level bootstrap produced:
+A single test-set score can give a misleading sense of precision, especially with a relatively small sample.
 
-| Metric | Point Estimate | 95% CI |
-|---|---:|---:|
-| ROC-AUC | 0.654 | 0.514–0.786 |
-| PR-AUC | 0.484 | 0.318–0.697 |
+Two bootstrap procedures were therefore used.
 
-However, quarterly observations from the same company are not fully independent.
+## Observation-Level Bootstrap
 
-A second bootstrap therefore resampled **entire companies** rather than individual quarterly observations.
+| Metric | 95% Confidence Interval |
+|---|---:|
+| ROC-AUC | **0.514 – 0.786** |
+| PR-AUC | **0.318 – 0.697** |
 
-The company-clustered bootstrap produced:
+## Company-Clustered Bootstrap
 
-| Metric | Point Estimate | Company-Clustered 95% CI |
-|---|---:|---:|
-| ROC-AUC | 0.654 | **0.445–0.844** |
-| PR-AUC | 0.484 | **0.235–0.721** |
+Quarterly observations belonging to the same company are not independent.
 
-The wider intervals demonstrate substantial uncertainty associated with the relatively small 20-company universe.
+A second bootstrap therefore resampled **entire companies** rather than individual rows.
 
-![Company-Clustered Bootstrap](05_OUTPUTS/bootstrap_roc_distribution.png)
+| Metric | Company-Clustered 95% CI |
+|---|---:|
+| ROC-AUC | **0.445 – 0.844** |
+| PR-AUC | **0.235 – 0.721** |
 
-The company-clustered bootstrap distribution remained centered near the observed model performance:
+![Bootstrap Distribution](05_OUTPUTS/bootstrap_roc_distribution.png)
 
-- ROC bootstrap mean: **0.655**
-- ROC bootstrap median: **0.660**
-
-This suggests that the central estimate is not obviously driven by bootstrap bias, although cross-company uncertainty remains high.
+The wider intervals demonstrate that model uncertainty is strongly affected by the relatively small **20-company universe**.
 
 ---
 
 # Cross-Company Generalization
 
-A Leave-One-Company-Out (LOCO) robustness analysis was performed using pre-2024 observations.
+A **Leave-One-Company-Out (LOCO)** experiment tested a harder question:
+
+> Can the model generalize to a company it has never seen during training?
 
 For each iteration:
 
-1. One company was completely removed from training.
-2. The model was trained using the other 19 companies.
+1. One company was completely removed.
+2. The model was trained on the other 19 companies.
 3. Predictions were generated for the unseen company.
-4. The procedure was repeated for all 20 companies.
 
-Combined LOCO performance was:
+### LOCO Results
 
 | Metric | Result |
 |---|---:|
 | ROC-AUC | **0.522** |
 | PR-AUC | **0.253** |
-| Accuracy | **0.642** |
-| Precision | **0.247** |
-| Recall | **0.265** |
-| F1 Score | **0.255** |
+| Accuracy | 0.642 |
+| Precision | 0.247 |
+| Recall | 0.265 |
+| F1 | 0.255 |
 
-The median company-level ROC-AUC among companies for which ROC-AUC could be calculated was approximately **0.598**.
+Among companies where ROC-AUC could be calculated:
 
-These results indicate substantially weaker performance when predicting companies with no historical observations in the training dataset.
+**Median company ROC-AUC ≈ 0.598**
 
-The model therefore appears more useful as a **within-company temporal early-warning framework** than as a universal model for completely unseen firms.
+Performance declined substantially compared with the chronological holdout.
+
+This is an important limitation rather than something to hide.
+
+The evidence suggests that the current model is more effective as a:
+
+> **within-company temporal early-warning framework**
+
+than as a universal prediction system for completely unseen companies.
 
 ---
 
 # Error Analysis
 
-![2024 Holdout Confusion Matrix](05_OUTPUTS/final_confusion_matrix.png)
-
-The frozen 2024 holdout produced:
+The final 2024 model produced:
 
 - **35 True Negatives**
 - **20 False Positives**
 - **15 True Positives**
 - **10 False Negatives**
 
-False-negative analysis showed that some significant future drawdowns occurred even when the company's financial and disclosure features did not produce a sufficiently high model probability.
+Several false positives still experienced meaningful future declines but did not cross the project's strict **-30% distress threshold**.
 
-This is consistent with an important limitation of fundamentally driven market-risk models: stock-price drawdowns may be triggered by information or events not contained in historical accounting fundamentals or SEC event variables.
+The error analysis also revealed company-specific differences in model behavior, reinforcing the importance of expanding the dataset before making stronger generalization claims.
 
 ---
 
 # Key Findings
 
-The project produced several main findings.
+### 1. Financial fundamentals carried most of the predictive signal
 
-### 1. Financial fundamentals contain meaningful predictive information
+Liquidity, leverage, profitability, and their changes were among the strongest model features.
 
-Liquidity, leverage, profitability, and their year-over-year changes consistently ranked among the most important model inputs.
+### 2. Persistent cash deterioration emerged as a useful warning signal
 
-### 2. Persistent deterioration can be more informative than isolated changes
+The observed distress rate increased from **20.6% to 37.4%** following a three-quarter cash deterioration streak.
 
-Three-quarter cash deterioration was associated with a substantially higher future distress rate.
+### 3. Corporate events provided context, but not a simple standalone signal
 
-This supports modeling the persistence of deterioration rather than relying exclusively on single-period financial changes.
+SEC 8-K activity contributed to the model, but raw filing volume alone did not reliably indicate distress.
 
-### 3. SEC disclosures provide contextual information
+### 4. Temporal prediction was stronger than cross-company transfer
 
-Overall 8-K filing volume was not a simple distress indicator.
+The model performed better when predicting future periods for companies represented historically than when applied to completely unseen firms.
 
-Specific disclosure categories and overall filing activity contributed information to the model, but their predictive relationships were more complex than the original hypothesis that unusually high filing activity necessarily signals distress.
+### 5. Uncertainty matters
 
-### 4. Temporal prediction is stronger than cross-company transfer
-
-The frozen 2024 model achieved ROC-AUC of **0.654**, while the LOCO robustness test produced ROC-AUC of **0.522**.
-
-This suggests that historical company-specific behavior contributes substantially to predictive performance.
-
-### 5. Model uncertainty is material
-
-Company-clustered confidence intervals were considerably wider than row-level confidence intervals.
-
-The small company universe is therefore an important limitation when interpreting the headline performance estimate.
-
----
-
-# Limitations
-
-This project has several important limitations.
-
-### Small Company Universe
-
-The dataset contains only 20 companies.
-
-Although the quarterly panel provides hundreds of observations, observations belonging to the same company are correlated.
-
-Future work should substantially expand the company universe.
-
-### Market Distress Is Not Corporate Failure
-
-A severe stock-price drawdown does not necessarily indicate bankruptcy, default, or fundamental insolvency.
-
-The target captures **market-based distress**, which may reflect macroeconomic conditions, valuation changes, regulatory events, or investor sentiment.
-
-### Industry Heterogeneity
-
-Financial ratios have different meanings across industries.
-
-For example, leverage and liquidity structures differ significantly between financial institutions, technology companies, industrial firms, and consumer businesses.
-
-Future versions could incorporate industry normalization or industry-specific models.
-
-### Event Classification
-
-SEC event variables were constructed using rule-based classification and filing-text analysis.
-
-More advanced natural-language-processing methods could potentially distinguish routine corporate disclosures from genuinely adverse events more accurately.
-
-### Limited Cross-Company Generalization
-
-LOCO testing suggests that the model does not currently generalize strongly to companies with no historical observations.
-
-This limits its usefulness as a universal screening model for entirely new firms.
-
----
-
-# Future Research
-
-Potential extensions include:
-
-- Expanding the dataset to hundreds or thousands of companies
-- Industry-normalized financial ratios
-- Macroeconomic controls
-- Interest-rate and credit-spread variables
-- Earnings-call transcript analysis
-- More advanced SEC filing NLP
-- Executive turnover severity classification
-- Debt covenant and refinancing indicators
-- Analyst guidance revisions
-- Alternative distress thresholds
-- Survival-analysis approaches
-- Gradient boosting and other model architectures
-- Probability calibration
-- Longer out-of-sample evaluation periods
-
-A substantially larger cross-sectional universe would be the most important next step.
+Company-clustered bootstrap intervals were wide, emphasizing the limitations of drawing strong conclusions from only 20 companies.
 
 ---
 
 # Technology Stack
 
-The project combines multiple analytical technologies.
-
 ### R
 
-Used for data collection, SEC filing processing, text classification, and event engineering.
+Used for:
+
+- SEC data collection
+- Financial filing processing
+- 8-K extraction
+- Text/event classification
+- Market-data preparation
+- Initial feature engineering
 
 ### PostgreSQL / SQL
 
-Used to store, organize, query, and validate the structured financial dataset.
+Used for:
+
+- Structured data storage
+- Data validation
+- Exploratory queries
+- Dataset construction
+- Model preparation
 
 ### Python
 
 Used for:
 
+- Data validation
 - Feature engineering
-- Model development
-- Temporal validation
-- Random Forest classification
-- Performance evaluation
-- Bootstrap confidence intervals
+- Random Forest modeling
+- Chronological validation
+- Feature ablation
+- Holdout testing
+- Bootstrap analysis
 - Error analysis
-- Cross-company robustness testing
+- Leave-One-Company-Out validation
 - Visualization
 
-Key Python libraries include:
+### Main Libraries
 
-- pandas
-- NumPy
-- scikit-learn
-- SQLAlchemy
-- psycopg2
-- Matplotlib
+```text
+pandas
+numpy
+scikit-learn
+sqlalchemy
+psycopg2
+pandas-market-calendars
+matplotlib
+statsmodels
+joblib
+```
 
 ---
 
-# Project Workflow
-
-The overall pipeline can be summarized as:
+# Repository Structure
 
 ```text
-SEC Financial Data
-        +
-SEC 8-K Filings
-        +
-Historical Market Data
-        |
-        v
-Data Cleaning / Standardization
-        |
-        v
-PostgreSQL Database
-        |
-        v
-Financial Ratio Engineering
-        +
-YoY Deterioration Features
-        +
-8-K Event Features
-        +
-Multi-Quarter Deterioration Streaks
-        |
-        v
-Chronological Model Development
-        |
-        v
-Purged Validation
-        |
-        v
-Frozen Random Forest Specification
-        |
-        v
-2024 Holdout Test
-        |
-        +--> Bootstrap Uncertainty Analysis
-        |
-        +--> Error Analysis
-        |
-        +--> Leave-One-Company-Out Robustness
+Financial Distress Project/
+│
+├── 02_CLEAN_DATA/
+│   ├── model_dataset.csv
+│   ├── model_dataset_events.csv
+│   ├── financial_deterioration_streaks.csv
+│   ├── quarter_sequence_validation.csv
+│   ├── stock_prices_2015_2025.csv
+│   └── sec_8k_events_2015_2024.csv
+│
+├── 03_SQL/
+│   ├── 01_data_validation_and_eda.sql
+│   └── 02_model_preparation.sql
+│
+├── 04_R_SCRIPT/
+│   ├── 01_download_sec_data.R
+│   ├── financial_distress_pipeline.R
+│   └── sec_8k_events.R
+│
+├── 05_OUTPUTS/
+│   ├── final_roc_curve.png
+│   ├── final_pr_curve.png
+│   ├── final_confusion_matrix.png
+│   ├── final_feature_importance.png
+│   ├── bootstrap_roc_distribution.png
+│   ├── final_frozen_2024_predictions.csv
+│   ├── loco_predictions.csv
+│   └── loco_company_results.csv
+│
+├── 06_PYTHON/
+│   ├── 01_load_and_validate_data.py
+│   ├── ...
+│   ├── 20_final_holdout_model.py
+│   ├── 21_final_error_analysis.py
+│   ├── 22_company_bootstrap.py
+│   ├── 22_label_audit.py
+│   ├── 23_leave_one_company_out.py
+│   └── 24_final_visuals.py
+│
+├── README.md
+├── requirements.txt
+└── .gitignore
 ```
+
+---
+
+# Limitations
+
+This project should be interpreted as an empirical research and portfolio project rather than a production trading system.
+
+Important limitations include:
+
+- The universe contains only **20 companies**
+- The final holdout contains only **80 observations**
+- Multiple quarterly observations come from the same companies
+- Industry differences are not fully normalized
+- SEC event classification is primarily rule-based
+- The target measures **equity drawdown**, not corporate bankruptcy
+- Cross-company generalization remains weak
+- Confidence intervals remain relatively wide
+
+These limitations motivated the use of temporal validation, company-clustered bootstrapping, error analysis, and Leave-One-Company-Out testing.
+
+---
+
+# Future Work
+
+The most important next step is expanding the universe from 20 companies to **hundreds or thousands of firms**.
+
+Potential extensions include:
+
+- Industry-relative financial ratios
+- Macroeconomic variables
+- Interest-rate and credit-spread data
+- Earnings-call transcript analysis
+- Analyst guidance revisions
+- More sophisticated SEC filing NLP
+- Probability calibration
+- Gradient-boosting models
+- Survival-analysis approaches
+- Alternative distress thresholds and horizons
+
+A larger company universe would also allow substantially stronger out-of-company validation.
 
 ---
 
 # Conclusion
 
-This project finds evidence that publicly observable financial deterioration and corporate disclosure information contain useful, but limited, forward-looking information about severe future equity drawdowns.
+This project finds evidence that publicly observable financial deterioration and SEC disclosure information contain **useful but limited forward-looking signal** about major future equity drawdowns.
 
-The final frozen model achieved a **2024 holdout ROC-AUC of 0.654 and PR-AUC of 0.484**, with **60% recall** at the predetermined classification threshold.
+The final frozen model achieved:
 
-Persistent deterioration in liquidity, particularly cash relative to assets, emerged as one of the clearest warning patterns.
+- **ROC-AUC: 0.654**
+- **PR-AUC: 0.484**
+- **Recall: 60%**
+- **F1: 0.500**
 
-At the same time, company-clustered uncertainty intervals were wide and performance declined substantially when the model was applied to completely unseen companies.
+Persistent liquidity deterioration emerged as a particularly useful warning pattern, while robustness testing showed that cross-company generalization remains a major challenge.
 
-The evidence therefore supports a cautious conclusion:
+More broadly, the project demonstrates an end-to-end financial data-science workflow spanning:
 
-> **Financial fundamentals and SEC disclosures can contribute to a market-distress early-warning system, particularly when historical company-specific information is available, but the current model should not be interpreted as a universal predictor of corporate failure or future stock performance.**
-
-The project demonstrates an end-to-end empirical workflow combining financial statement analysis, SEC filing data, SQL database management, feature engineering, machine learning, temporal validation, and statistical robustness testing.
+**SEC financial data → corporate disclosures → R → SQL/PostgreSQL → Python → machine learning → temporal validation → statistical robustness testing.**
